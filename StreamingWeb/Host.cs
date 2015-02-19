@@ -20,7 +20,7 @@ using Owin;
 namespace StreamingWeb
 {
     /// <summary>
-    /// Interface declaration specifying data-exchange model
+    /// Interface declaration specifying data-exchange model. Will end up JSON serialized.
     /// </summary>
     public interface IData
     {
@@ -61,7 +61,7 @@ namespace StreamingWeb
                 long count = 0;
                 while (!softLimit.HasValue || count < softLimit.Value)
                 {
-                    // The DB is slow.... will abort immediately of cancellationToken is cancelled
+                    // The DB is slow.... will abort immediately if cancellationToken is cancelled
                     await Task.Delay(DelayBetweenEachBatch, cancellationToken);
                     // Got items
                     var batch = Enumerable.Range(0, BatchResultSize)
@@ -111,7 +111,7 @@ namespace StreamingWeb
             var owinConfig = new HttpConfiguration();
             owinConfig.SetupJson();
             owinConfig.IncludeErrorDetailPolicy = IncludeErrorDetailPolicy.Always; // For debugging
-            // Web API routes - Allows ApiController with RoutePrefix and Route
+            // Web API routes - Allows auto-finding ApiController with RoutePrefix and Route
             owinConfig.MapHttpAttributeRoutes();
             // Disable the "application/xml" media type, so that JSON is returned in e.g. Chrome. For XML, explicitly request media type "text/xml" instead.
             var appXmlType = owinConfig.Formatters.XmlFormatter.SupportedMediaTypes.FirstOrDefault(t => t.MediaType == "application/xml");
@@ -120,7 +120,8 @@ namespace StreamingWeb
             app.UseWebApi(owinConfig);
 
             // Configure for signalR
-            app.MapSignalR();
+            var hubConfig = new HubConfiguration {EnableDetailedErrors = true};
+            app.MapSignalR(hubConfig);
         }
     }
 
@@ -134,9 +135,9 @@ namespace StreamingWeb
             _db = Program.Db; // Should be injection :)
         }
 
-        public Task Query()
+        public Task Query(int fromId)
         {
-            return _query(null, null);
+            return _query(fromId, null);
         }
 
         private async Task _query(int? fromId, int? softLimit)
@@ -159,19 +160,14 @@ namespace StreamingWeb
 
         [Route("query")]
         [HttpGet]
-        public IEnumerable<IData> Query([FromUri] int? fromId = null, [FromUri]int softLimit = 100)
+        public async Task<IEnumerable<IData>> Query([FromUri] int? fromId = null, [FromUri]int? limit = 100)
         {
-            return _db.Query(fromId, softLimit, cancellationToken: Request.CallCancelled())
-                .SelectMany(x => x) // Concatenate all the batches in a single observable
-                .ToEnumerable();
-        }
-        [Route("queryasync")]
-        [HttpGet]
-        public async Task<IEnumerable<IData>> QueryAsync([FromUri] int? fromId = null, [FromUri]int softLimit = 100)
-        {
-            return await _db.Query(fromId, softLimit, cancellationToken: Request.CallCancelled())
-                .SelectMany(x => x) // Concatenate all the batches in a single observable
-                .ToList();
+            var items = _db.Query(fromId, cancellationToken: Request.CallCancelled())
+                .SelectMany(x => x); // Concatenate all the batches in a single observable
+            if ( limit.HasValue )
+                items = items.Take(limit.Value); // We can stop exactly at the softlimit
+            var fetch = await items.ToList();
+            return fetch;
         }
     }
 
@@ -190,7 +186,7 @@ namespace StreamingWeb
 
     public static class JsonWebApiSetup
     {
-        public static void SetupJson(this HttpConfiguration config)
+        public static HttpConfiguration SetupJson(this HttpConfiguration config)
         {
             // Configure JSON serializer
             var jsonSettings = config.Formatters.JsonFormatter.SerializerSettings;
@@ -198,6 +194,7 @@ namespace StreamingWeb
             jsonSettings.DateTimeZoneHandling = DateTimeZoneHandling.Utc;
             jsonSettings.Converters.Add(new StringEnumConverter());
             jsonSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+            return config;
         }
     }
 }

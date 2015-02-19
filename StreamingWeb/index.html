@@ -7,26 +7,26 @@
     </head>
     <body>
         <div id="data"></div>
-        <div id="msg"></div>
         <script src="Scripts/jquery-2.1.3.js"></script>
         <script src="Scripts/jquery.signalR-2.2.0.js"></script>
         <script src ="http://localhost:8180/signalr/hubs"></script>
         <script type="text/javascript">
             $(function () {
-                $.connection.hub.logging = true;
+                // $.connection.hub.logging = true; // Debug logging on the client
                 $.connection.hub.url = "http://localhost:8180/signalr/";
+                // Get the dataHub (defined by signalr/hubs script)
                 var dataHub = $.connection.dataHub;
-                dataHub.client.send = function(msg) {
-                    $("#msg").append($("<li />").text(msg));
-                };
+                // Allow the servcer to push data by calling acceptBatch
                 dataHub.client.acceptBatch = function (batch) {
                     var addTo = $("#data");
                     $.each(batch, function(index, item) {
                         addTo.append($("<div />").text(item.Id));
                     });
                 };
+                // When the hub is started (and connection is up)
+                // start the server query
                 $.connection.hub.start().done(function() {
-                    dataHub.server.query();
+                    dataHub.server.query(5);
                 });
             });
         </script>
