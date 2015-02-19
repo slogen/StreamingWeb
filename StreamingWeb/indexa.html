@@ -1,0 +1,131 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <meta charset="utf-8" />
+        <title>Streaming Web</title>
+    </head>
+    <body>
+        <form data-ng-app="streamApp" data-ng-controller="streamCtrl">
+            <p data-ng-bind="lastData"></p>
+        </form>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+        <script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.3.13/angular.min.js"></script>
+        <script src="Scripts/jquery.signalR-2.2.0.js"></script>
+        <script>
+            var streamApp = angular.module("streamApp", []);
+            /* http://coffeegrammer.com/2014/12/28/the-connection-provider */
+            streamApp.provider('connection', function Connection() {
+                var connection = $.connection,
+                    reconnectDelay = 1500,
+                    maxReconnectDelay = 60000;
+
+                // allows you to set logging on before the connection runs
+                this.showLogging = function () { $.connection.hub.logging = true; };
+
+                // used to override the default values
+                this.setup = function (queryString, delay, maxDelay) {
+                    reconnectDelay = delay || reconnectDelay;
+                    maxReconnectDelay = maxDelay || maxReconnectDelay;
+                    $.connection.hub.qs = queryString;
+                };
+
+                // Used to get the connection to add client callbacks, if so desired, in the config stage
+                this.getConnection = function () {
+                    return connection;
+                };
+
+                // This is what is returned when we inject 'connection'
+                this.$get = ['$q', '$timeout',
+                function connectionService($q, $timeout) {
+                    var self = this,
+                    failedConnectionAttempts = 0,
+                    loadedDefered = $q.defer(),
+                    isLoaded = loadedDefered.promise,
+                    loading = false,
+                    initialized = false;
+
+                    function whenReady(serverCall) {
+                        return isLoaded.then(function () {
+                            return $q.when(serverCall());
+                        });
+                    }
+
+                    function init() {
+                        // if we are currently loading, abort
+                        if (loading) {
+                            return;
+                        }
+                        $.connection.hub.logging = true;
+
+                        // if we have not yet been initialized (ie: we are reconnecting)
+                        // then we need to setup the disconnection event
+                        if (!initialized) {
+                            initialized = true;
+
+                            connection.hub.disconnected(function () {
+                                loadedDefered = $q.defer();
+                                isLoaded = loadedDefered.promise;
+
+                                loading = false;
+                                var newDelay = reconnectDelay * ++failedConnectionAttempts;
+                                $timeout(init, Math.min(Math.max(reconnectDelay, newDelay), maxReconnectDelay));
+                            });
+                        }
+
+                        // set loading to be true now that we're handling the connection start
+                        loading = true;
+
+                        connection.hub.start().done(function () {
+                            loading = false;
+                            // resolve the loading defered so that 
+                            loadedDefered.resolve();
+                            failedConnectionAttempts = 0;
+                        }).fail(function () {
+                            /// <summary>Panics; figure out what to do here later</summary>
+                            loadedDefered = $q.defer();
+                            isLoaded = loadedDefered.promise;
+                        });
+                    }
+
+                    init();
+
+                    // so that we can say `connection.ready().then(function() { return myServerCall(); });`
+                    self.ready = whenReady;
+                    self.hubs = connection;
+
+                    return self;
+                }];
+
+                return this;
+            });
+            streamApp.config(["connectionProvider",
+                function(connectionProvider) {
+                    if (window.location.hostname == "localhost")
+                        connectionProvider.showLogging();
+                    connectionProvider.setup("browser", 1000);
+                }]);
+            streamApp.service("streamData", [
+                'connection',
+                function(connection) {
+                    var self = this,
+                        ready = connection.ready,
+                        dataHubServer = connection.hubs.dataHub.server;
+                    this.query = function() {
+                        return ready(function() { dataHubServer.query(); });
+                    };
+                    return this;
+                }
+            ]);
+            streamApp.controller("streamCtrl", [
+                "$scope", 'streamData',
+                function($scope, streamData) {
+                    $scope.lastData = [];
+                    streamData.query().then(function(batch) {
+                        $scope.lastData = batch;
+                    });
+                }
+            ]);
+        </script>
+    </body>
+</html>

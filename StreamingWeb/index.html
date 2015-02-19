@@ -1,0 +1,34 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <meta charset="utf-8" />
+        <title>Streaming Web</title>
+    </head>
+    <body>
+        <div id="data"></div>
+        <div id="msg"></div>
+        <script src="Scripts/jquery-2.1.3.js"></script>
+        <script src="Scripts/jquery.signalR-2.2.0.js"></script>
+        <script src ="http://localhost:8180/signalr/hubs"></script>
+        <script type="text/javascript">
+            $(function () {
+                $.connection.hub.logging = true;
+                $.connection.hub.url = "http://localhost:8180/signalr/";
+                var dataHub = $.connection.dataHub;
+                dataHub.client.send = function(msg) {
+                    $("#msg").append($("<li />").text(msg));
+                };
+                dataHub.client.acceptBatch = function (batch) {
+                    var addTo = $("#data");
+                    $.each(batch, function(index, item) {
+                        addTo.append($("<div />").text(item.Id));
+                    });
+                };
+                $.connection.hub.start().done(function() {
+                    dataHub.server.query();
+                });
+            });
+        </script>
+    </body>
+</html>

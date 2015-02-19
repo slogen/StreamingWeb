@@ -1,0 +1,11 @@
+*.suo
+bin/
+obj/
+TestResults/
+*.psess
+*.user
+*.patch
+.idea/
+*.iml
+*.Cache
+*.vspx
